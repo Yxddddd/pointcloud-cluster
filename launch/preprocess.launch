@@ -1,0 +1,9 @@
+<launch>
+  <node pkg="lidar_preprocess" type="lidar_preprocess_filter_process" name="preprocess" output="screen">
+  	<param name="split_theta" value="10.0"/>
+  	<param name="cluster_tolerance" value="0.6"/>
+	<param name="core_min_points" value="10"/>
+	<param name="min_cluster" value="15"/>
+	<param name ="save_file" value="true"/>
+  </node>
+</launch>

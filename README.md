@@ -12,3 +12,7 @@ git clone https://github.com/Yxddddd/pointcloud-cluster.git
 cd ~/catkin_ws  
 catkin_make 
 ```
+## Running
+`roslaunch lidar_gnss_mapping lidar_gnss_mapping.launch` 
+`rosrun lidar_preprocess lidar_preprocess_show`
+`rosbag play test.bag`

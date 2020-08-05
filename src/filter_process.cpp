@@ -22,8 +22,8 @@
 #include <fstream>
 
 #include "DBSCAN_simple.h"
-#include "DBSCAN_precomp.h"
 #include "DBSCAN_kdtree.h"
+
 
 using namespace cv;
 

@@ -18,3 +18,15 @@ catkin_make
 `rosrun lidar_preprocess lidar_preprocess_show`
 
 `rosbag play test.bag`
+
+```
+ //HDL-64
+extern const string lidarTopic = "/kitti/velo/pointcloud";
+extern const int N_SCAN = 64;
+extern const int Horizon_SCAN = 2250;
+extern const float ang_res_x = 0.16;
+extern const float ang_res_y = 0.427;
+extern const float ang_bottom = 24.9;
+extern const int groundScanInd = 50; 
+```
+	

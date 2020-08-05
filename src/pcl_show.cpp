@@ -216,8 +216,7 @@ int main(int argc, char**argv){
 
 	ros::init(argc,argv,"pcl_show");
 	ros::NodeHandle nh;
-	ros::Subscriber sunLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/pointcloud_cluster",2,laserCloudHandler);
-	string str = "/home/yxd/catkin_ws/src/lidar_preprocess/data/point1_64.txt";
+	ros::Subscriber sunLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/pointcloud_cluster",10,laserCloudHandler);
 	viewer->setCameraPosition(
         0, 0, 100,                                // camera位置
         0, 0, 0,                                // view向量--相机朝向

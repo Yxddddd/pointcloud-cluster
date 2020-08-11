@@ -13,6 +13,11 @@
 #include <Eigen/Geometry>
 #include <Eigen/Core>
 #include <limits>
+#include <pcl/io/io.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/common/common.h>
+#include <pcl/common/transforms.h>
 
 using namespace std;
 
@@ -58,22 +63,33 @@ unordered_map<int, pcl::PointCloud<pcl::PointXYZRGB>::Ptr>labelPointCloud;
 unordered_map<int, pcl::PointCloud<pcl::PointXYZI>::Ptr>labelPointCloudXYZI;
 //////////////////////////
 boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-
+//////////////////////////
+vector<Eigen::Vector3f>bboxT;
+vector<Eigen::Quaternionf>bboxQ;
+vector<Eigen::Vector3f>whd;
+//////////////////////////
 void visualize_pcd(){
-	ros::Rate rate(20);
+	ros::Rate rate(100);
 	while(ros::ok()){
 		viewer->removeAllPointClouds(); 
 		viewer->removeAllShapes();   
 		pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(PointCloud_RGB);
 	    viewer->addPointCloud<pcl::PointXYZRGB>(PointCloud_RGB, rgb, "sample cloud");
-	    char str[paintLine.size()/2];
-	    for(int i=0;i<paintLine.size();){
+	    char str[bboxQ.size()];
+		for(int i=0;i<bboxQ.size();++i){
 			sprintf(str, "%d", i);
-			viewer->addLine<pcl::PointXYZI>(paintLine[i],paintLine[i+1],255,255,0,str);
-			i = i+2;
+			viewer->addCube(bboxT[i], bboxQ[i], whd[i](0), whd[i](1), whd[i](2), str);
+			viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, str);
+			viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 255, 255, 0.0, str);
 		}
-		std::cout<<"point cloud rgb "<<PointCloud_RGB->points.size()<<" line points "<<paintLine.size()<<std::endl;
-		viewer->spinOnce(10);
+	 //    char str[paintLine.size()/2];
+	 //    for(int i=0;i<paintLine.size();){
+		// 	sprintf(str, "%d", i);
+		// 	viewer->addLine<pcl::PointXYZI>(paintLine[i],paintLine[i+1],255,255,0,str);
+		// 	i = i+2;
+		// }
+		// std::cout<<"point cloud rgb "<<PointCloud_RGB->points.size()<<" line points "<<paintLine.size()<<std::endl;
+		viewer->spinOnce(1);
 		// boost::this_thread::sleep (boost::posix_time::microseconds (100));
 	}
 }
@@ -116,10 +132,53 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn){
 		}
 		labelPointCloud[intensity]->push_back(thisPoint);
 	}
+	bboxQ.clear();
+	bboxT.clear();
+	whd.clear();
+	for(int i=0;i<labelPointCloud.size();i++){
+		Eigen::Vector4f pcaCentroid;
+		pcl::compute3DCentroid(*labelPointCloud[i], pcaCentroid);
+		Eigen::Matrix3f covariance;
+		pcl::computeCovarianceMatrixNormalized(*labelPointCloud[i], pcaCentroid, covariance);
+		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigen_solver(covariance, Eigen::ComputeEigenvectors);
+		Eigen::Matrix3f eigenVectorsPCA = eigen_solver.eigenvectors();
+		Eigen::Vector3f eigenValuesPCA = eigen_solver.eigenvalues();
+	
+	 	eigenVectorsPCA.col(2) = eigenVectorsPCA.col(0).cross(eigenVectorsPCA.col(1)); 
+		eigenVectorsPCA.col(0) = eigenVectorsPCA.col(1).cross(eigenVectorsPCA.col(2));
+		eigenVectorsPCA.col(1) = eigenVectorsPCA.col(2).cross(eigenVectorsPCA.col(0));
+
+		Eigen::Matrix4f value = Eigen::Matrix4f::Identity();
+		value.block<3,3>(0,0) = eigenVectorsPCA;
+		value.block<3,1>(0,3) = pcaCentroid.head<3>();
+		Eigen::Matrix4f value_inverse = Eigen::Matrix4f::Identity();
+		value_inverse.block<3, 3>(0, 0) = eigenVectorsPCA.transpose();   //R.
+		value_inverse.block<3, 1>(0, 3) = -1.0f * (eigenVectorsPCA.transpose()) *(pcaCentroid.head<3>());//  -R*t
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr transformedCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+		pcl::transformPointCloud(*labelPointCloud[i], *transformedCloud, value_inverse);
+		Eigen::Vector4f min_p1, max_p1;
+		Eigen::Vector3f c;
+
+		pcl::getMinMax3D(*transformedCloud, min_p1, max_p1);
+		Eigen::Vector3f c1={0.5f*(min_p1(0) + max_p1(0)),0.5f*(min_p1(1) + max_p1(1)),0.5f*(min_p1(2) + max_p1(2))};
+		pcl::PointXYZI centerPoint;
+		centerPoint.x = c1(0);	centerPoint.y = c1(1); centerPoint.z = c1(2);
+
+		Eigen::Affine3f tm_inv_aff(value);
+		pcl::transformPoint(c1, c, tm_inv_aff);
+		Eigen::Vector3f tmp_whd = {(max_p1(0) - min_p1(0)),(max_p1(1) - min_p1(1)),(max_p1(2) - min_p1(2))};
+		whd.push_back(tmp_whd);
+		Eigen::Quaternionf tmp_bboxQ(value.block<3,3>(0, 0));
+		Eigen::Vector3f    tmp_bboxT(c);
+		bboxT.push_back(tmp_bboxT);
+		bboxQ.push_back(tmp_bboxQ);
+	}
+	/*
 	for(int i=0;i<labelPointCloud.size();i++){
 		for(int j=0;j<labelPointCloud[i]->points.size();++j){
 			pcl::PointXYZRGB thisPoint = labelPointCloud[i]->points[j];
-			center = addPointXYZI(center, thisPoint);
+			// center = addPointXYZI(center, thisPoint);
 			max_point.x = max(max_point.x, thisPoint.x);
 			max_point.y = max(max_point.y, thisPoint.y);
 			max_point.z = max(max_point.z, thisPoint.z);
@@ -128,9 +187,15 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn){
 			min_point.y = min(min_point.y, thisPoint.y);
 			min_point.z = min(min_point.z, thisPoint.z);
 			if(j == labelPointCloud[i]->points.size()-1){
-				center.x = center.x/(labelPointCloud[i]->points.size()*1.0);
-				center.y = center.y/(labelPointCloud[i]->points.size()*1.0);
-				center.z = center.z/(labelPointCloud[i]->points.size()*1.0);
+
+				Eigen::Vector4f centroid;
+				pcl::compute3DCentroid(*labelPointCloud[i],centroid);
+				center.x = centroid(0);	center.y = centroid(1);	center.z = centroid(2);
+				// cout<<"compute3DCentroid  \t"<<centroid(0)<<"   "<<centroid(1)<<"    "<<centroid(2)<<endl;
+				// center.x = center.x/(labelPointCloud[i]->points.size()*1.0);
+				// center.y = center.y/(labelPointCloud[i]->points.size()*1.0);
+				// center.z = center.z/(labelPointCloud[i]->points.size()*1.0);
+				// cout<<"expression     \t  "<<center.x<<"    "<<center.y<<"    "<<center.z<<std::endl;
 				float scale_x = (max_point.x - min_point.x)>0?(max_point.x - min_point.x):0;
 				float scale_y = (max_point.y - min_point.y)>0?(max_point.y - min_point.y):0;
 				float scale_z = (max_point.z - min_point.z)>0?(max_point.z - min_point.z):0;
@@ -209,18 +274,19 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn){
 				center.x = 0;	center.y = 0;	center.z = 0;
 			}
 		}
-	}
-	std::cout<<"cost time is ==> "<<ros::Time::now().toSec()-time<<std::endl;
+	}*/
+	// std::cout<<"cost time is ==> "<<ros::Time::now().toSec()-time<<std::endl;
 }
 int main(int argc, char**argv){
 
 	ros::init(argc,argv,"pcl_show");
 	ros::NodeHandle nh;
-	ros::Subscriber sunLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/pointcloud_cluster",10,laserCloudHandler);
+	ros::Subscriber sunLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/pointcloud_cluster",2,laserCloudHandler);
+	
 	viewer->setCameraPosition(
-        0, 0, 100,                                // camera位置
-        0, 0, 0,                                // view向量--相机朝向
-        0, 0, 0                                 // up向量
+        0, 0, 100,                                
+        0, 0, 0,                                
+        0, 0, 0                                
         );
 
 	vector<pcl::PointXYZI>PointMsgs;
@@ -238,7 +304,7 @@ int main(int argc, char**argv){
 	min_point.z = std::numeric_limits<float>::max();
 	// viewer->reset(new pcl::visualization::PCLVisualizer ("3D Viewer"));
 	boost::thread visualizethread(visualize_pcd);
-	ros::Rate rate(30);
+	ros::Rate rate(50);
 	bool status = ros::ok();
 	while(status){
 		ros::spinOnce();
